@@ -1,4 +1,6 @@
 import logging
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 
@@ -17,23 +19,34 @@ PACKAGES = {
     "10000": {"robux": 10000, "price": "900,000", "emoji": "💫", "badge": "🔥 بهترین ارزش"},
 }
 
-# ==================== مراحل ====================
 CHOOSING_PACKAGE, WAITING_USERNAME, WAITING_RECEIPT, SUPPORT_MODE = range(4)
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 orders = {}
 
+# ==================== سرور ساده برای Render ====================
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Robux Bot is running!")
+    def log_message(self, format, *args):
+        pass
+
+def run_server():
+    server = HTTPServer(("0.0.0.0", 10000), HealthHandler)
+    server.serve_forever()
+
+# ==================== منو ====================
 def main_menu():
     return ReplyKeyboardMarkup(
-        [
-            ["🛍 خرید روباکس", "📦 پکیج‌ها"],
-            ["📋 راهنمای خرید", "📞 پشتیبانی"],
-        ],
+        [["🛍 خرید روباکس", "📦 پکیج‌ها"],
+         ["📋 راهنمای خرید", "📞 پشتیبانی"]],
         resize_keyboard=True
     )
 
+# ==================== استارت ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     text = (
@@ -60,46 +73,39 @@ async def show_packages(update: Update, context: ContextTypes.DEFAULT_TYPE):
             callback_data=f"buy_{key}"
         )])
     keyboard.append([InlineKeyboardButton("❌ انصراف", callback_data="cancel")])
-    reply_markup = InlineKeyboardMarkup(keyboard)
     if update.message:
-        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     else:
-        await update.callback_query.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
+        await update.callback_query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return CHOOSING_PACKAGE
 
 async def package_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     if query.data == "cancel":
-        await query.message.reply_text("❌ سفارش لغو شد. هر وقت خواستی دوباره برگرد! 😊", reply_markup=main_menu())
+        await query.message.reply_text("❌ سفارش لغو شد!", reply_markup=main_menu())
         return ConversationHandler.END
-    pkg_key = query.data.replace("buy_", "")
-    pkg = PACKAGES[pkg_key]
+    pkg = PACKAGES[query.data.replace("buy_", "")]
     context.user_data["package"] = pkg
-    text = (
+    await query.message.reply_text(
         f"✅ انتخاب کردی: *{pkg['robux']:,} روباکس* — {pkg['price']} تومان\n\n"
-        "👤 حالا *یوزرنیم رابلاکست* رو بفرست:\n"
-        "_(مثال: RobloxPlayer123)_"
+        "👤 حالا *یوزرنیم رابلاکست* رو بفرست:\n_(مثال: RobloxPlayer123)_",
+        parse_mode="Markdown"
     )
-    await query.message.reply_text(text, parse_mode="Markdown")
     return WAITING_USERNAME
 
 async def receive_username(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    username = update.message.text.strip()
-    context.user_data["roblox_username"] = username
+    context.user_data["roblox_username"] = update.message.text.strip()
     pkg = context.user_data["package"]
-    text = (
-        f"✅ یوزرنیم ثبت شد: *{username}*\n\n"
-        "━━━━━━━━━━━━━━━\n"
-        "💳 *اطلاعات پرداخت:*\n"
+    await update.message.reply_text(
+        f"✅ یوزرنیم ثبت شد: *{context.user_data['roblox_username']}*\n\n"
+        "━━━━━━━━━━━━━━━\n💳 *اطلاعات پرداخت:*\n"
         f"💰 مبلغ: *{pkg['price']} تومان*\n"
-        f"🏦 شماره کارت:\n"
-        f"`{CARD_NUMBER}`\n"
+        f"🏦 شماره کارت:\n`{CARD_NUMBER}`\n"
         f"👤 به نام: *{CARD_OWNER}*\n"
-        "━━━━━━━━━━━━━━━\n\n"
-        "📸 بعد از پرداخت، *عکس رسید* رو اینجا بفرست!"
+        "━━━━━━━━━━━━━━━\n\n📸 عکس رسید رو بفرست!",
+        parse_mode="Markdown"
     )
-    await update.message.reply_text(text, parse_mode="Markdown")
     return WAITING_RECEIPT
 
 async def receive_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -107,26 +113,16 @@ async def receive_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pkg = context.user_data["package"]
     roblox_username = context.user_data["roblox_username"]
     order_id = f"ORD{user.id}{len(orders)+1:04d}"
-    orders[order_id] = {
-        "user_id": user.id,
-        "username": user.username or user.first_name,
-        "roblox_username": roblox_username,
-        "package": pkg,
-        "status": "pending"
-    }
+    orders[order_id] = {"user_id": user.id, "package": pkg, "status": "pending"}
     admin_text = (
-        f"🔔 *سفارش جدید!*\n"
-        f"━━━━━━━━━━━━━━━\n"
-        f"🆔 شماره سفارش: `{order_id}`\n"
-        f"👤 کاربر: [{user.first_name}](tg://user?id={user.id})\n"
-        f"🎮 یوزرنیم رابلاکس: `{roblox_username}`\n"
-        f"💎 پکیج: {pkg['robux']:,} روباکس\n"
-        f"💰 مبلغ: {pkg['price']} تومان\n"
-        f"━━━━━━━━━━━━━━━"
+        f"🔔 *سفارش جدید!*\n━━━━━━━━━━━━━━━\n"
+        f"🆔 `{order_id}`\n👤 [{user.first_name}](tg://user?id={user.id})\n"
+        f"🎮 یوزرنیم: `{roblox_username}`\n"
+        f"💎 {pkg['robux']:,} روباکس\n💰 {pkg['price']} تومان\n━━━━━━━━━━━━━━━"
     )
     keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ تأیید و ارسال", callback_data=f"confirm_{order_id}_{user.id}"),
-        InlineKeyboardButton("❌ رد کردن", callback_data=f"reject_{order_id}_{user.id}")
+        InlineKeyboardButton("✅ تأیید", callback_data=f"confirm_{order_id}_{user.id}"),
+        InlineKeyboardButton("❌ رد", callback_data=f"reject_{order_id}_{user.id}")
     ]])
     try:
         if update.message.photo:
@@ -134,11 +130,11 @@ async def receive_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption=admin_text, parse_mode="Markdown", reply_markup=keyboard)
         else:
             await context.bot.send_message(chat_id=ADMIN_CHAT_ID,
-                text=admin_text + "\n⚠️ رسید تصویری ارسال نشد", parse_mode="Markdown", reply_markup=keyboard)
+                text=admin_text + "\n⚠️ رسید تصویری نداشت", parse_mode="Markdown", reply_markup=keyboard)
     except Exception as e:
-        logger.error(f"Error sending to admin: {e}")
+        logger.error(e)
     await update.message.reply_text(
-        f"✅ *سفارشت ثبت شد!*\n\n🆔 شماره سفارش: `{order_id}`\n⏳ در حال بررسی...\n\nتا *۳۰ دقیقه* روباکست ارسال میشه! 🎮",
+        f"✅ *سفارشت ثبت شد!*\n🆔 `{order_id}`\n⏳ تا ۳۰ دقیقه روباکست ارسال میشه! 🎮",
         parse_mode="Markdown", reply_markup=main_menu()
     )
     return ConversationHandler.END
@@ -146,100 +142,75 @@ async def receive_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def admin_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    data = query.data.split("_")
-    action = data[0]
-    order_id = data[1]
-    user_id = int(data[2])
+    parts = query.data.split("_")
+    action, order_id, user_id = parts[0], parts[1], int(parts[2])
     if action == "confirm":
         await context.bot.send_message(chat_id=user_id,
-            text=f"🎉 *سفارشت تأیید شد!*\n\n🆔 `{order_id}`\n✅ روباکست به زودی اضافه میشه!\n\nممنون از خریدت! 🎮💎",
+            text=f"🎉 *سفارشت تأیید شد!*\n🆔 `{order_id}`\n✅ روباکست اضافه میشه!\nممنون! 🎮💎",
             parse_mode="Markdown")
         try:
-            await query.message.edit_caption(caption=query.message.caption + "\n\n✅ *تأیید شد*", parse_mode="Markdown")
+            await query.message.edit_caption(caption=query.message.caption + "\n\n✅ تأیید شد", parse_mode="Markdown")
         except:
-            await query.message.edit_text(text=query.message.text + "\n\n✅ *تأیید شد*", parse_mode="Markdown")
-    elif action == "reject":
+            pass
+    else:
         await context.bot.send_message(chat_id=user_id,
-            text=f"❌ *سفارشت تأیید نشد*\n\n🆔 `{order_id}`\n⚠️ مشکلی در پرداخت بود. دوباره تلاش کن یا با پشتیبانی تماس بگیر.",
+            text=f"❌ *سفارشت تأیید نشد*\n🆔 `{order_id}`\nبا پشتیبانی تماس بگیر.",
             parse_mode="Markdown")
         try:
-            await query.message.edit_caption(caption=query.message.caption + "\n\n❌ *رد شد*", parse_mode="Markdown")
+            await query.message.edit_caption(caption=query.message.caption + "\n\n❌ رد شد", parse_mode="Markdown")
         except:
-            await query.message.edit_text(text=query.message.text + "\n\n❌ *رد شد*", parse_mode="Markdown")
+            pass
 
 async def support_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     await update.message.reply_text(
-        "📞 *بخش پشتیبانی*\n"
-        "━━━━━━━━━━━━━━━\n\n"
-        "سوال یا مشکلت رو بنویس — پشتیبانی در اسرع وقت جواب میده! 💬\n\n"
-        "برای بازگشت به منو بنویس: /start",
+        "📞 *پشتیبانی*\n━━━━━━━━━━━━━━━\n\nپیامت رو بنویس 💬\nبرای بازگشت: /start",
         parse_mode="Markdown"
     )
-    await context.bot.send_message(
-        chat_id=ADMIN_CHAT_ID,
-        text=f"📞 *کاربر وارد پشتیبانی شد*\n👤 [{user.first_name}](tg://user?id={user.id})\n🆔 آیدی: `{user.id}`",
-        parse_mode="Markdown"
-    )
+    await context.bot.send_message(chat_id=ADMIN_CHAT_ID,
+        text=f"📞 [{user.first_name}](tg://user?id={user.id}) وارد پشتیبانی شد\n🆔 `{user.id}`",
+        parse_mode="Markdown")
     return SUPPORT_MODE
 
 async def support_receive(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    text = update.message.text
-    admin_msg = (
-        f"💬 *پیام پشتیبانی جدید!*\n"
-        f"━━━━━━━━━━━━━━━\n"
-        f"👤 کاربر: [{user.first_name}](tg://user?id={user.id})\n"
-        f"🆔 آیدی: `{user.id}`\n"
-        f"📝 پیام:\n{text}\n"
-        f"━━━━━━━━━━━━━━━\n"
-        f"برای پاسخ: `/reply {user.id} پیامت`"
-    )
-    await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=admin_msg, parse_mode="Markdown")
-    await update.message.reply_text("✅ پیامت دریافت شد!\n⏳ پشتیبانی به زودی جواب میده... 😊")
+    await context.bot.send_message(chat_id=ADMIN_CHAT_ID,
+        text=f"💬 *پیام جدید پشتیبانی*\n👤 [{user.first_name}](tg://user?id={user.id})\n🆔 `{user.id}`\n📝 {update.message.text}\n\nپاسخ: `/reply {user.id} پیامت`",
+        parse_mode="Markdown")
+    await update.message.reply_text("✅ پیامت رسید! به زودی جواب میدیم 😊")
     return SUPPORT_MODE
 
 async def admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) != ADMIN_CHAT_ID:
         return
     if not context.args or len(context.args) < 2:
-        await update.message.reply_text("❌ فرمت درست:\n`/reply آیدی_کاربر پیامت`", parse_mode="Markdown")
+        await update.message.reply_text("فرمت: `/reply آیدی پیام`", parse_mode="Markdown")
         return
     try:
-        user_id = int(context.args[0])
-        reply_text = " ".join(context.args[1:])
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=f"📩 *پاسخ پشتیبانی:*\n━━━━━━━━━━━━━━━\n{reply_text}",
-            parse_mode="Markdown"
-        )
+        await context.bot.send_message(chat_id=int(context.args[0]),
+            text=f"📩 *پاسخ پشتیبانی:*\n{' '.join(context.args[1:])}", parse_mode="Markdown")
         await update.message.reply_text("✅ پیام ارسال شد!")
     except Exception as e:
         await update.message.reply_text(f"❌ خطا: {e}")
 
 async def guide(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (
-        "📋 *راهنمای خرید روباکس*\n"
-        "━━━━━━━━━━━━━━━\n\n"
-        "1️⃣ روی *خرید روباکس* بزن\n"
-        "2️⃣ پکیج مورد نظرت رو انتخاب کن\n"
-        "3️⃣ *یوزرنیم رابلاکست* رو وارد کن\n"
-        "4️⃣ مبلغ رو به شماره کارت واریز کن\n"
-        "5️⃣ *عکس رسید* رو بفرست\n"
-        "6️⃣ منتظر تأیید بمون — تا *۳۰ دقیقه* ✅\n\n"
-        "━━━━━━━━━━━━━━━\n"
-        "⚠️ *نکات مهم:*\n"
-        "• یوزرنیم رابلاکس رو درست وارد کن\n"
-        "• رسید واضح باشه\n"
-        "• بعد از تأیید روباکس ارسال میشه"
+    await update.message.reply_text(
+        "📋 *راهنمای خرید*\n━━━━━━━━━━━━━━━\n\n"
+        "1️⃣ خرید روباکس رو بزن\n2️⃣ پکیج انتخاب کن\n"
+        "3️⃣ یوزرنیم رابلاکس بده\n4️⃣ پول واریز کن\n"
+        "5️⃣ رسید بفرست\n6️⃣ تا ۳۰ دقیقه روباکس میاد ✅",
+        parse_mode="Markdown"
     )
-    await update.message.reply_text(text, parse_mode="Markdown")
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("❌ عملیات لغو شد.", reply_markup=main_menu())
+    await update.message.reply_text("❌ لغو شد.", reply_markup=main_menu())
     return ConversationHandler.END
 
 def main():
+    # سرور رو توی thread جداگانه اجرا کن
+    t = threading.Thread(target=run_server, daemon=True)
+    t.start()
+
     app = Application.builder().token(BOT_TOKEN).build()
 
     async def post_init(application):
