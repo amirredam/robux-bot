@@ -51,6 +51,7 @@ users = {}
 orders = {}
 discounts = {}
 
+
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -59,9 +60,11 @@ class HealthHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
+
 def run_server():
     server = HTTPServer(("0.0.0.0", 10000), HealthHandler)
     server.serve_forever()
+
 
 def main_menu():
     return ReplyKeyboardMarkup(
@@ -70,6 +73,7 @@ def main_menu():
          ["👤 حساب من", "🎁 دعوت دوستان"]],
         resize_keyboard=True
     )
+
 
 def register_user(user, ref_id=None):
     uid = str(user.id)
@@ -85,8 +89,10 @@ def register_user(user, ref_id=None):
             users[str(ref_id)]["points"] += 50
             users[uid]["discount"] = REFERRAL_DISCOUNT
 
+
 def is_blocked(user_id):
     return users.get(str(user_id), {}).get("blocked", False)
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -113,6 +119,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(welcome, reply_markup=main_menu(), parse_mode="Markdown")
     return ConversationHandler.END
 
+
 async def smart_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_blocked(update.effective_user.id):
         return
@@ -125,6 +132,7 @@ async def smart_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🤔 متوجه نشدم!\n\n• خرید: دکمه 🛍\n• سوال: دکمه 📞\n• بازگشت: /start",
         reply_markup=main_menu()
     )
+
 
 async def show_packages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_blocked(update.effective_user.id):
@@ -145,6 +153,7 @@ async def show_packages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.callback_query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return CHOOSING_PACKAGE
+
 
 async def package_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -167,6 +176,7 @@ async def package_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return WAITING_USERNAME
 
+
 async def receive_username(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["roblox_username"] = update.message.text.strip()
     final_price = context.user_data["final_price"]
@@ -181,6 +191,7 @@ async def receive_username(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return WAITING_RECEIPT
 
+
 async def receive_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     pkg = context.user_data["package"]
@@ -188,13 +199,29 @@ async def receive_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     final_price = context.user_data["final_price"]
     discount = context.user_data.get("discount", 0)
     order_id = f"ORD{user.id}{len(orders)+1:04d}"
-    orders[order_id] = {"user_id": user.id, "roblox_username": roblox_username, "package": pkg["robux"], "price": final_price, "status": "pending", "date": datetime.now().strftime("%Y-%m-%d %H:%M")}
+    orders[order_id] = {
+        "user_id": user.id, "roblox_username": roblox_username,
+        "package": pkg["robux"], "price": final_price,
+        "status": "pending", "date": datetime.now().strftime("%Y-%m-%d %H:%M")
+    }
     uid = str(user.id)
     if uid in users:
         users[uid]["points"] += int(final_price / 1000)
         users[uid]["discount"] = 0
-    admin_text = f"🔔 *سفارش جدید!*\n━━━━━━━━━━━━━━━\n🆔 `{order_id}`\n👤 [{user.first_name}](tg://user?id={user.id})\n🎮 `{roblox_username}`\n💎 {pkg['robux']:,} روباکس\n💰 {final_price:,} تومان" + (f" ({discount}٪ تخفیف)" if discount > 0 else "") + "\n━━━━━━━━━━━━━━━"
-    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ تأیید", callback_data=f"confirm_{order_id}_{user.id}"), InlineKeyboardButton("❌ رد", callback_data=f"reject_{order_id}_{user.id}")]])
+    admin_text = (
+        f"🔔 *سفارش جدید!*\n━━━━━━━━━━━━━━━\n"
+        f"🆔 `{order_id}`\n"
+        f"👤 [{user.first_name}](tg://user?id={user.id})\n"
+        f"🎮 `{roblox_username}`\n"
+        f"💎 {pkg['robux']:,} روباکس\n"
+        f"💰 {final_price:,} تومان"
+        + (f" ({discount}٪ تخفیف)" if discount > 0 else "") +
+        "\n━━━━━━━━━━━━━━━"
+    )
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ تأیید", callback_data=f"confirm_{order_id}_{user.id}"),
+        InlineKeyboardButton("❌ رد", callback_data=f"reject_{order_id}_{user.id}")
+    ]])
     try:
         if update.message.photo:
             await context.bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=update.message.photo[-1].file_id, caption=admin_text, parse_mode="Markdown", reply_markup=keyboard)
@@ -202,8 +229,12 @@ async def receive_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=admin_text + "\n⚠️ رسید نداشت", parse_mode="Markdown", reply_markup=keyboard)
     except Exception as e:
         logger.error(e)
-    await update.message.reply_text(f"✅ *سفارشت ثبت شد!*\n🆔 `{order_id}`\n⏳ تا ۳۰ دقیقه روباکست ارسال میشه! 🎮", parse_mode="Markdown", reply_markup=main_menu())
+    await update.message.reply_text(
+        f"✅ *سفارشت ثبت شد!*\n🆔 `{order_id}`\n⏳ تا ۳۰ دقیقه روباکست ارسال میشه! 🎮",
+        parse_mode="Markdown", reply_markup=main_menu()
+    )
     return ConversationHandler.END
+
 
 async def admin_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -217,7 +248,11 @@ async def admin_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             users[uid]["total_spent"] += orders.get(order_id, {}).get("price", 0)
         if order_id in orders:
             orders[order_id]["status"] = "confirmed"
-        await context.bot.send_message(chat_id=user_id, text=f"🎉 *تأیید شد!*\n🆔 `{order_id}`\n✅ روباکست اضافه میشه!\nممنون! 🎮💎", parse_mode="Markdown")
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"🎉 *تأیید شد!*\n🆔 `{order_id}`\n✅ روباکست اضافه میشه!\nممنون! 🎮💎",
+            parse_mode="Markdown"
+        )
         try:
             await query.message.edit_caption(caption=query.message.caption + "\n\n✅ تأیید شد", parse_mode="Markdown")
         except:
@@ -225,21 +260,35 @@ async def admin_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         if order_id in orders:
             orders[order_id]["status"] = "rejected"
-        await context.bot.send_message(chat_id=user_id, text=f"❌ *تأیید نشد*\n🆔 `{order_id}`\nبا پشتیبانی تماس بگیر.", parse_mode="Markdown")
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"❌ *تأیید نشد*\n🆔 `{order_id}`\nبا پشتیبانی تماس بگیر.",
+            parse_mode="Markdown"
+        )
         try:
             await query.message.edit_caption(caption=query.message.caption + "\n\n❌ رد شد", parse_mode="Markdown")
         except:
             pass
+
 
 async def my_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     register_user(user)
     u = users[str(user.id)]
     level = "💎 VIP" if u["total_spent"] >= 500000 else "🥈 نقره" if u["total_spent"] >= 200000 else "🥉 برنز"
-    text = f"👤 *حساب کاربری*\n━━━━━━━━━━━━━━━\n🏷 *{u['name']}*\n⭐ امتیاز: *{u['points']}*\n📦 سفارشات: *{u['orders']}*\n💰 *{u['total_spent']:,} تومان*\n👥 دعوت‌شدگان: *{u['referrals']}*\n🎖 سطح: *{level}*"
+    text = (
+        f"👤 *حساب کاربری*\n━━━━━━━━━━━━━━━\n"
+        f"🏷 *{u['name']}*\n"
+        f"⭐ امتیاز: *{u['points']}*\n"
+        f"📦 سفارشات: *{u['orders']}*\n"
+        f"💰 *{u['total_spent']:,} تومان*\n"
+        f"👥 دعوت‌شدگان: *{u['referrals']}*\n"
+        f"🎖 سطح: *{level}*"
+    )
     if u["discount"] > 0:
         text += f"\n🎁 تخفیف: *{u['discount']}٪*"
     await update.message.reply_text(text, parse_mode="Markdown")
+
 
 async def track_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
@@ -254,7 +303,17 @@ async def track_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ این سفارش مال شما نیست!")
         return
     status_map = {"pending": "⏳ در انتظار", "confirmed": "✅ تأیید شده", "rejected": "❌ رد شده"}
-    await update.message.reply_text(f"📦 *وضعیت سفارش*\n━━━━━━━━━━━━━━━\n🆔 `{order_id}`\n🎮 `{o['roblox_username']}`\n💎 {o['package']:,} روباکس\n💰 {o['price']:,} تومان\n📅 {o['date']}\nوضعیت: {status_map.get(o['status'], '⏳')}", parse_mode="Markdown")
+    await update.message.reply_text(
+        f"📦 *وضعیت سفارش*\n━━━━━━━━━━━━━━━\n"
+        f"🆔 `{order_id}`\n"
+        f"🎮 `{o['roblox_username']}`\n"
+        f"💎 {o['package']:,} روباکس\n"
+        f"💰 {o['price']:,} تومان\n"
+        f"📅 {o['date']}\n"
+        f"وضعیت: {status_map.get(o['status'], '⏳')}",
+        parse_mode="Markdown"
+    )
+
 
 async def use_discount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
@@ -270,6 +329,7 @@ async def use_discount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     discounts[code]["used"] += 1
     await update.message.reply_text(f"✅ *تخفیف {discounts[code]['percent']}٪ فعال شد!* 🎁", parse_mode="Markdown")
 
+
 async def referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     register_user(user)
@@ -277,16 +337,26 @@ async def referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot_username = (await context.bot.get_me()).username
     ref_link = f"https://t.me/{bot_username}?start={user.id}"
     u = users[uid]
-    await update.message.reply_text(f"🎁 *دعوت دوستان*\n━━━━━━━━━━━━━━━\n\nلینک دعوت:\n`{ref_link}`\n\n👥 دعوت‌شدگان: *{u['referrals']} نفر*\n⭐ امتیاز: *{u['referrals'] * 50}*\n\n🎁 دوستت {REFERRAL_DISCOUNT}٪ تخفیف\nتو ۵۰ امتیاز! 🏆", parse_mode="Markdown")
+    await update.message.reply_text(
+        f"🎁 *دعوت دوستان*\n━━━━━━━━━━━━━━━\n\n"
+        f"لینک دعوت:\n`{ref_link}`\n\n"
+        f"👥 دعوت‌شدگان: *{u['referrals']} نفر*\n"
+        f"⭐ امتیاز: *{u['referrals'] * 50}*\n\n"
+        f"🎁 دوستت {REFERRAL_DISCOUNT}٪ تخفیف\nتو ۵۰ امتیاز! 🏆",
+        parse_mode="Markdown"
+    )
+
 
 async def block_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) != ADMIN_CHAT_ID or not context.args:
         return
     tid = context.args[0]
     if tid not in users:
-        users[tid] = {"name": "ناشناس", "points": 0, "orders": 0, "total_spent": 0, "referrals": 0, "blocked": False, "joined": "", "discount": 0, "username": ""}
+        users[tid] = {"name": "ناشناس", "points": 0, "orders": 0, "total_spent": 0,
+                      "referrals": 0, "blocked": False, "joined": "", "discount": 0, "username": ""}
     users[tid]["blocked"] = True
     await update.message.reply_text(f"✅ بلاک: `{tid}`", parse_mode="Markdown")
+
 
 async def unblock_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) != ADMIN_CHAT_ID:
@@ -295,12 +365,26 @@ async def unblock_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         users[context.args[0]]["blocked"] = False
         await update.message.reply_text("✅ آنبلاک شد!")
 
+
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) != ADMIN_CHAT_ID:
         return
     confirmed = sum(1 for o in orders.values() if o["status"] == "confirmed")
     total_income = sum(o["price"] for o in orders.values() if o["status"] == "confirmed")
-    await update.message.reply_text(f"📊 *پنل ادمین*\n━━━━━━━━━━━━━━━\n👥 کاربران: *{len(users)}*\n📦 سفارشات: *{len(orders)}*\n✅ تأیید: *{confirmed}*\n💰 درآمد: *{total_income:,} تومان*\n━━━━━━━━━━━━━━━\n• `/addcode کد درصد تعداد`\n• `/block آیدی` | `/unblock آیدی`\n• `/broadcast پیام`\n• `/reply آیدی پیام`", parse_mode="Markdown")
+    await update.message.reply_text(
+        f"📊 *پنل ادمین*\n━━━━━━━━━━━━━━━\n"
+        f"👥 کاربران: *{len(users)}*\n"
+        f"📦 سفارشات: *{len(orders)}*\n"
+        f"✅ تأیید: *{confirmed}*\n"
+        f"💰 درآمد: *{total_income:,} تومان*\n"
+        "━━━━━━━━━━━━━━━\n"
+        "• `/addcode کد درصد تعداد`\n"
+        "• `/block آیدی` | `/unblock آیدی`\n"
+        "• `/broadcast پیام`\n"
+        "• `/reply آیدی پیام`",
+        parse_mode="Markdown"
+    )
+
 
 async def add_discount_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) != ADMIN_CHAT_ID or len(context.args) < 3:
@@ -308,6 +392,7 @@ async def add_discount_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     code, percent, max_use = context.args[0].upper(), int(context.args[1]), int(context.args[2])
     discounts[code] = {"percent": percent, "max_use": max_use, "used": 0}
     await update.message.reply_text(f"✅ کد `{code}` با {percent}٪ ساخته شد!", parse_mode="Markdown")
+
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) != ADMIN_CHAT_ID or not context.args:
@@ -322,34 +407,61 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             failed += 1
     await update.message.reply_text(f"✅ موفق: {sent} | ❌ ناموفق: {failed}")
 
+
 async def support_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     register_user(user)
     await update.message.reply_text("📞 *پشتیبانی*\n\nپیامت رو بنویس 💬\nبازگشت: /start", parse_mode="Markdown")
-    await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"📞 [{user.first_name}](tg://user?id={user.id}) — پشتیبانی\n🆔 `{user.id}`", parse_mode="Markdown")
+    await context.bot.send_message(
+        chat_id=ADMIN_CHAT_ID,
+        text=f"📞 [{user.first_name}](tg://user?id={user.id}) — پشتیبانی\n🆔 `{user.id}`",
+        parse_mode="Markdown"
+    )
     return SUPPORT_MODE
+
 
 async def support_receive(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"💬 *پشتیبانی*\n👤 [{user.first_name}](tg://user?id={user.id})\n🆔 `{user.id}`\n📝 {update.message.text}\n\n`/reply {user.id} پیامت`", parse_mode="Markdown")
+    await context.bot.send_message(
+        chat_id=ADMIN_CHAT_ID,
+        text=f"💬 *پشتیبانی*\n👤 [{user.first_name}](tg://user?id={user.id})\n🆔 `{user.id}`\n📝 {update.message.text}\n\n`/reply {user.id} پیامت`",
+        parse_mode="Markdown"
+    )
     await update.message.reply_text("✅ پیامت رسید! به زودی جواب میدیم 😊")
     return SUPPORT_MODE
+
 
 async def admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) != ADMIN_CHAT_ID or not context.args or len(context.args) < 2:
         return
     try:
-        await context.bot.send_message(chat_id=int(context.args[0]), text=f"📩 *پاسخ پشتیبانی:*\n{' '.join(context.args[1:])}", parse_mode="Markdown")
+        await context.bot.send_message(
+            chat_id=int(context.args[0]),
+            text=f"📩 *پاسخ پشتیبانی:*\n{' '.join(context.args[1:])}",
+            parse_mode="Markdown"
+        )
         await update.message.reply_text("✅ ارسال شد!")
     except Exception as e:
         await update.message.reply_text(f"❌ {e}")
 
+
 async def guide(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📋 *راهنمای خرید*\n━━━━━━━━━━━━━━━\n\n1️⃣ خرید روباکس\n2️⃣ پکیج انتخاب کن\n3️⃣ یوزرنیم بده\n4️⃣ پول واریز کن\n5️⃣ رسید بفرست\n6️⃣ تا ۳۰ دقیقه روباکس میاد ✅", parse_mode="Markdown")
+    await update.message.reply_text(
+        "📋 *راهنمای خرید*\n━━━━━━━━━━━━━━━\n\n"
+        "1️⃣ خرید روباکس\n"
+        "2️⃣ پکیج انتخاب کن\n"
+        "3️⃣ یوزرنیم بده\n"
+        "4️⃣ پول واریز کن\n"
+        "5️⃣ رسید بفرست\n"
+        "6️⃣ تا ۳۰ دقیقه روباکس میاد ✅",
+        parse_mode="Markdown"
+    )
+
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ لغو شد.", reply_markup=main_menu())
     return ConversationHandler.END
+
 
 def main():
     threading.Thread(target=run_server, daemon=True).start()
@@ -374,6 +486,9 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel), CommandHandler("start", start)],
     )
 
+    # ✅ conv_handler اول اضافه میشه — مهمترین تغییر!
+    app.add_handler(conv_handler)
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reply", admin_reply))
     app.add_handler(CommandHandler("order", track_order))
@@ -383,7 +498,6 @@ def main():
     app.add_handler(CommandHandler("unblock", unblock_user))
     app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(CommandHandler("addcode", add_discount_code))
-    app.add_handler(conv_handler)
     app.add_handler(CallbackQueryHandler(admin_confirm, pattern="^(confirm|reject)_"))
     app.add_handler(MessageHandler(filters.Regex("^📋 راهنمای خرید$"), guide))
     app.add_handler(MessageHandler(filters.Regex("^👤 حساب من$"), my_account))
@@ -392,6 +506,7 @@ def main():
 
     print("✅ Rubax Shop Bot شروع به کار کرد!")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
+
 
 if __name__ == "__main__":
     main()
