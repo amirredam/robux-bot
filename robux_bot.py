@@ -288,6 +288,7 @@ async def my_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if u["discount"] > 0:
         text += f"\n🎁 تخفیف: *{u['discount']}٪*"
     await update.message.reply_text(text, parse_mode="Markdown")
+    return ConversationHandler.END
 
 
 async def track_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -345,6 +346,7 @@ async def referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🎁 دوستت {REFERRAL_DISCOUNT}٪ تخفیف\nتو ۵۰ امتیاز! 🏆",
         parse_mode="Markdown"
     )
+    return ConversationHandler.END
 
 
 async def block_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -456,6 +458,7 @@ async def guide(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "6️⃣ تا ۳۰ دقیقه روباکس میاد ✅",
         parse_mode="Markdown"
     )
+    return ConversationHandler.END
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -483,12 +486,21 @@ def main():
             WAITING_RECEIPT: [MessageHandler(filters.PHOTO | filters.TEXT, receive_receipt)],
             SUPPORT_MODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, support_receive)],
         },
-        fallbacks=[CommandHandler("cancel", cancel), CommandHandler("start", start)],
+        # ✅ همه دکمه‌های منو توی fallbacks — هر وقت هر دکمه‌ای زده شد، state پاک میشه و مستقیم کار میکنه
+        fallbacks=[
+            CommandHandler("cancel", cancel),
+            CommandHandler("start", start),
+            MessageHandler(filters.Regex("^🛍 خرید روباکس$"), show_packages),
+            MessageHandler(filters.Regex("^📦 پکیج‌ها$"), show_packages),
+            MessageHandler(filters.Regex("^📞 پشتیبانی$"), support_start),
+            MessageHandler(filters.Regex("^📋 راهنمای خرید$"), guide),
+            MessageHandler(filters.Regex("^👤 حساب من$"), my_account),
+            MessageHandler(filters.Regex("^🎁 دعوت دوستان$"), referral),
+        ],
+        allow_reentry=True,  # ✅ اجازه میده مکالمه دوباره از نو شروع بشه
     )
 
-    # ✅ conv_handler اول اضافه میشه — مهمترین تغییر!
     app.add_handler(conv_handler)
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reply", admin_reply))
     app.add_handler(CommandHandler("order", track_order))
